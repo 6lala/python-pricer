@@ -1,0 +1,77 @@
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+
+# Загрузка данных
+rates = pd.read_csv('C:/Users/egoro/Downloads/USD rates (2).csv')
+rates['EndDate'] = pd.to_datetime(rates['EndDate'])
+rates['StartDate'] = pd.to_datetime(rates['StartDate'])
+
+# Построение дискаунт кривой методом бутстрапирования
+delta=(rates['EndDate'][0]-rates['StartDate'][0]).days/360
+time_to_maturity=[0]
+time_to_maturity.append((rates['EndDate'][0]-rates['StartDate'][0]).days)
+P=[1]
+P.append(1/(1+delta*rates['Unnamed: 1'][0]))
+def discount_curve(rates:pd.DataFrame):
+    for i in range(rates.shape[0]-2):
+        i+=1
+        delta=(rates['StartDate'][i+1]-rates['StartDate'][i]).days/360
+        F=1-rates['Unnamed: 1'][i]/100-rates['Conv, adj'][i]
+        time_to_maturity.append((rates['StartDate'][i+1]-rates['StartDate'][0]).days)
+        P.append(P[-1]/(1+F*delta))
+    curve=pd.DataFrame({'time_to_maturity(days)':time_to_maturity,'discount_factor':P})
+    return curve
+    
+curve=discount_curve(rates)
+
+fig = px.scatter(curve, x='time_to_maturity(days)', y='discount_factor', title='Discount_curve')
+fig.show()
+
+class Interpolate:
+    def __init__(self, x_list, y_list):
+        if any(x_next_step - x <= 0 for x, x_next_step in zip(x_list, x_list[1:])):
+            raise ValueError("x_list must be in ascending order!")
+        self.x_list = x_list
+        self.y_list = y_list
+        intervals = zip(x_list, x_list[1:], y_list, y_list[1:])
+        self.slopes = [(y2 - y1) / (x2 - x1) for x1, x2, y1, y2 in intervals]
+        
+    @staticmethod
+    def indexation(x_list, x, start=0):
+        finish=len(x_list)
+        while start < finish:
+            middle = (start + finish) // 2
+            if x < x_list[middle]: finish = middle
+            else: start=middle+1
+        return start
+    
+    def __call__(self, x):
+        if not (self.x_list[0] <= x <= self.x_list[-1]):
+            raise ValueError("x out of bounds!")
+        if x == self.x_list[-1]:
+            return self.y_list[-1]
+        i = Interpolate.indexation(self.x_list, x) - 1
+        return self.y_list[i] + self.slopes[i] * (x - self.x_list[i])
+# Интерполирование полученной кривой        
+f=Interpolate(list(curve['time_to_maturity(days)']),list(curve['discount_factor']))
+P=list()
+for i in range(1056):
+    if i in  list(curve['time_to_maturity(days)']):
+        P.append(curve['discount_factor'][curve['time_to_maturity(days)']==i].values[0])
+        continue
+    P.append(f(i))
+#График кривой
+fig = px.scatter(curve, x='time_to_maturity(days)', y='discount_factor', title='Discount_curve', color=px.Constant("bootstrapping"))
+fig.add_trace(
+    go.Scatter(
+        x=list(range(1056)),
+        y=P,
+        mode="lines",
+        line=go.scatter.Line(color="red"),
+        name='interpolation',
+        showlegend=True)
+)    
+fig.show()
